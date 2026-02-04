@@ -2,9 +2,14 @@ name: Scheduled Attendance Automation
 
 on:
   schedule:
-    # Run at 8:30 AM UTC every weekday (adjust timezone as needed)
-    - cron: '30 8 * * 1-5'
-  workflow_dispatch: # Allow manual triggering
+    # 8:31 AM IST (03:01 UTC) Monday–Saturday
+    - cron: '1 3 * * 1-6'
+
+    # 8:00 PM IST (14:30 UTC) Monday–Saturday
+    - cron: '30 14 * * 1-6'
+
+  workflow_dispatch:
+
 
 jobs:
   attendance-bot:
