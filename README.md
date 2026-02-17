@@ -213,4 +213,4 @@ If you encounter issues, please:
 
 ---
 
-**Made with ❤️ for simplifying daily routine tasks**
+*made with ❤️ for simplifying daily routine tasks*
