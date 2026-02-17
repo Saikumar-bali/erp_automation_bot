@@ -109,17 +109,27 @@ def process_single_user(context, user_config):
         if not saved:
             raise Exception("Could not click Save button.")
 
-        # 5. VERIFY
+        # 5. VERIFY & CAPTURE POPUP
+        # We now wait specifically for the success modal to appear before screenshotting.
         try:
-            page.wait_for_selector("text=Saved", timeout=8000)
-            log(f"SUCCESS: User {username} punched successfully.")
+            # Selector for the text found in the 'Welcome' popup
+            success_selector = "text=Successfully punched IN, text=Welcome"
+            page.wait_for_selector(success_selector, timeout=10000)
+            
+            # Small buffer to let the modal animation finish so the proof is clear
+            time.sleep(1) 
+            
+            log(f"SUCCESS: User {username} punched. Capturing Welcome popup.")
+            
+            # Take screenshot while the modal is visible
             page.screenshot(path=f"logs/proof_{username}_{int(time.time())}.png")
-        except:
-            if page.locator("text=Welcome").count() > 0:
-                 log(f"SUCCESS: User {username} punched (Welcome msg).")
-            else:
-                log(f"WARNING: User {username} verification timed out.")
-                page.screenshot(path=f"logs/fail_{username}_{int(time.time())}.png")
+            
+            # Close the modal so the context is clean
+            page.keyboard.press("Escape") 
+            
+        except Exception as e:
+            log(f"WARNING: User {username} verification/screenshot timed out: {e}")
+            page.screenshot(path=f"logs/fail_{username}_{int(time.time())}.png")
 
     except Exception as e:
         log(f"ERROR for user {username}: {str(e)}")
@@ -142,7 +152,6 @@ def run_attendance():
 
         for user in users:
             # Create a FRESH context for each user (clears cookies/session)
-            # This is crucial for multi-login to work without conflicts
             context = browser.new_context(
                 permissions=["geolocation"],
                 geolocation={"latitude": config['latitude'], "longitude": config['longitude']},
