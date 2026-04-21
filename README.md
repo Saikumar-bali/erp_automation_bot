@@ -1,6 +1,6 @@
 # ERP Attendance Automation Bot
 
-A Python automation bot that simplifies daily employee check-in/check-out process for ERP systems. This bot automates the manual process of logging into the ERP portal, fetching geolocation, and marking attendance.
+A Python automation bot that simplifies daily employee check-in/check-out process for ERP systems. This is the bot automates the manual process of logging into the ERP portal, fetching geolocation, and marking attendance.
 
 ## 🚀 Features
 
