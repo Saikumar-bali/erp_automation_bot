@@ -1,0 +1,22 @@
+{
+  "name": "erp-attendance-api-migration",
+  "version": "1.0.0",
+  "description": "ERP Attendance Automation - API-based implementation with detailed logging",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node src/test-flow.js",
+    "logs": "tail -f logs/detailed-flow.log"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
