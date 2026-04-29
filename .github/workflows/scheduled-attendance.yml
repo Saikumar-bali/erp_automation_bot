@@ -3,10 +3,10 @@ name: Scheduled Attendance Automation
 on:
   schedule:
     # 7:30 AM IST (02:00 UTC) Monday–Saturday
-    - cron: '0 2 * * 1-6'
+    # - cron: '0 2 * * 1-6'
 
     # 7:00 PM IST (13:30 UTC) Monday–Saturday
-    - cron: '30 13 * * 1-6'
+    # - cron: '30 13 * * 1-6'
 
   workflow_dispatch:
 
