@@ -1,0 +1,24 @@
+{
+  "name": "hippo_erp_bot",
+  "version": "1.0.0",
+  "description": "A Python automation bot that simplifies daily employee check-in/check-out process for ERP systems. This bot automates the manual process of logging into the ERP portal, fetching geolocation, and marking attendance.",
+  "main": "attendance.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Saikumar-bali/erp_automation_bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Saikumar-bali/erp_automation_bot/issues"
+  },
+  "homepage": "https://github.com/Saikumar-bali/erp_automation_bot#readme",
+  "dependencies": {
+    "puppeteer": "^24.42.0"
+  }
+}
