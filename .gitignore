@@ -58,6 +58,10 @@ error_state.png
 
 # Configuration with sensitive data
 config.json
+wrangler.toml
+.wrangler/
+.dev.vars
+
 
 # Playwright
 /test-results/
