@@ -1,15 +1,34 @@
+function getIstDate() {
+  return new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000));
+}
+
 export default {
   // 1. AUTOMATED CRON JOB
   async scheduled(event, env, ctx) {
-    const istDate = new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000));
+    const istDate = getIstDate();
+    const dayNames = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+    const dayOfWeek = dayNames[istDate.getUTCDay()]; // This is actually current UTC day, but close enough for logging
     const today = istDate.toISOString().split('T')[0];
+    
     ctx.waitUntil((async () => {
       try {
-        await env.ATT_DB.put(`LOG:${today}`, `CRON STARTED at ${istDate.toISOString()}`);
+        const startIstStr = istDate.toISOString().replace('T', ' ').slice(0, 23);
+        const dayLabel = dayNames[istDate.getDay()]; // Local day in IST
+        
+        // Initial log to prove the cron fired
+        await env.ATT_DB.put(`LOG:${today}`, `CRON TRIGGERED: ${dayLabel} at ${startIstStr}`);
+        
         const report = await handleAttendanceFlow(env);
-        if (istDate.getHours() >= 18) await syncHolidays(env);
+        
+        // Sync holidays at night
+        if (istDate.getHours() >= 18) {
+          await syncHolidays(env);
+        }
       } catch (e) {
-        await env.ATT_DB.put(`LOG:${today}`, `CRON ERROR: ${e.message}`);
+        // If it fails even at the first step, we catch it here
+        const errDate = getIstDate().toISOString().split('T')[0];
+        const existing = await env.ATT_DB.get(`LOG:${errDate}`) || "";
+        await env.ATT_DB.put(`LOG:${errDate}`, `${existing} | CRON FATAL: ${e.message}`);
       }
     })());
   },
@@ -119,11 +138,10 @@ async function runAttendance(env, istDate) {
   const config = JSON.parse(env.CONFIG);
   const logType = istDate.getHours() < 14 ? 'IN' : 'OUT'; 
   const baseUrl = config.login_url.split('/login')[0];
-  const startTime = Date.now();
-  const userResults = await Promise.all(config.users.map(async (user) => {
+
+  // 1. PRE-AUTHENTICATION
+  const authResults = await Promise.all(config.users.map(async (user) => {
     try {
-      const hash = user.username.split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a; }, 0);
-      const stableDeviceId = 'mobile_' + Math.abs(hash).toString(16).padEnd(12, 'a');
       const loginRes = await fetch(`${baseUrl}/api/method/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -131,17 +149,64 @@ async function runAttendance(env, istDate) {
       });
       const sid = (loginRes.headers.get('set-cookie') || '').match(/sid=([^;]+)/)?.[1];
       const csrfToken = (loginRes.headers.get('set-cookie') || '').match(/frappe_csrf_token=([^;]+)/)?.[1];
-      if (!sid) return `FAILED: ${user.username} (Auth)`;
+      return { username: user.username, sid, csrfToken, error: sid ? null : 'Auth failed' };
+    } catch (e) {
+      return { username: user.username, error: e.message };
+    }
+  }));
+
+  // 2. PRECISION WAIT (Targeting exact UTC seconds)
+  // 10:00 AM IST = 04:30 UTC | 07:00 PM IST = 13:30 UTC
+  const targetHourUtc = logType === 'IN' ? 4 : 13;
+  const targetMinUtc = 30;
+  
+  const targetTime = new Date(); // This is current UTC
+  targetTime.setUTCHours(targetHourUtc, targetMinUtc, 0, 0);
+  const targetMs = targetTime.getTime();
+
+  // Wait only if we triggered early (e.g. at 04:29 or 13:29)
+  if (Date.now() < targetMs) {
+    while (Date.now() < targetMs) {
+      const remaining = targetMs - Date.now();
+      if (remaining <= 0) break;
+      if (remaining > 1000) await new Promise(r => setTimeout(r, 500));
+      else if (remaining > 100) await new Promise(r => setTimeout(r, 50));
+      else await new Promise(r => setTimeout(r, 5)); // Final tight loop
+    }
+  }
+
+  const startTime = Date.now();
+  const offset = 5.5 * 60 * 60 * 1000;
+  
+  // 3. EXECUTE PUNCHES
+  const userResults = await Promise.all(authResults.map(async (auth) => {
+    if (auth.error) return `FAILED: ${auth.username} (${auth.error})`;
+    try {
+      const hash = auth.username.split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a; }, 0);
+      const stableDeviceId = 'mobile_' + Math.abs(hash).toString(16).padEnd(12, 'a');
+      const nowIst = new Date(Date.now() + offset);
+      const punchTime = nowIst.toISOString().slice(0, 19).replace('T', ' ');
+      const punchMs = String(nowIst.getMilliseconds()).padStart(3, '0');
+      
       const response = await fetch(`${baseUrl}/api/resource/Employee Checkin`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Cookie': `sid=${sid}`, 'X-Frappe-CSRF-Token': csrfToken || '' },
-        body: JSON.stringify({ log_type: logType, time: istDate.toISOString().slice(0, 19).replace('T', ' '), device_id: stableDeviceId, latitude: config.latitude, longitude: config.longitude, custom_office_location: "Ramatalkies", location_id: stableDeviceId })
+        headers: { 'Content-Type': 'application/json', 'Cookie': `sid=${auth.sid}`, 'X-Frappe-CSRF-Token': auth.csrfToken || '' },
+        body: JSON.stringify({ 
+          log_type: logType, 
+          time: punchTime, 
+          device_id: stableDeviceId, 
+          latitude: config.latitude, 
+          longitude: config.longitude, 
+          custom_office_location: "Ramatalkies", 
+          location_id: stableDeviceId 
+        })
       });
-      return response.ok ? `SUCCESS: ${user.username} ${logType}` : `FAILED: ${user.username} (API Error)`;
-    } catch (e) { return `ERROR: ${user.username} (${e.message})`; }
+      return response.ok ? `SUCCESS: ${auth.username} ${logType} @ ${punchTime}.${punchMs}` : `FAILED: ${auth.username} (API Error)`;
+    } catch (e) { return `ERROR: ${auth.username} (${e.message})`; }
   }));
-  const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-  return `--- Punch Report (${istDate.toISOString()}) | ${duration}s ---\n` + userResults.join('\n');
+  
+  const duration = ((Date.now() - startTime) / 1000).toFixed(3);
+  return `--- Precision Punch Report --- \nDuration: ${duration}s\n` + userResults.join('\n');
 }
 
 function renderMonthlyDashboard(pwd) {

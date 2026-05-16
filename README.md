@@ -1,216 +1,90 @@
-# ERP Attendance Automation Bot
+# Hippo ERP Bot - Precision Attendance Automation
 
-A Python automation bot that simplifies daily employee check-in/check-out process for ERP systems. This is the bot automates the manual process of logging into the ERP portal, fetching geolocation, and marking attendance.
+A professional-grade attendance automation suite for the Hippo ERP system (hippoclouds.com). This project provides sub-second punch accuracy using a dual-layer architecture: **Cloudflare Workers** (Primary) and **GitHub Actions** (Secondary/Backup).
 
-## 🚀 Features
+## 🏆 Core Architecture
 
-- **Automated Login**: Secure login to ERP system using configurable credentials
-- **Geolocation Simulation**: Mock GPS coordinates to satisfy location-based attendance requirements
-- **Silent Operation**: Runs invisibly in background without browser window
-- **Proof Generation**: Takes screenshots as evidence of successful attendance marking
-- **Comprehensive Logging**: Detailed logs with timestamps for tracking execution
-- **Windows Integration**: PowerShell script for seamless scheduling and notifications
-- **Error Handling**: Automatic error screenshots for troubleshooting
+### 1. Primary Method: Cloudflare Worker (Ultra-Fast API)
+The primary engine is a serverless Cloudflare Worker that uses the "Precision Sniper" strategy.
+- **Method**: Direct REST API interaction (no browser overhead).
+- **Accuracy**: Sub-second precision (aims for exactly 10:00:00.000).
+- **Pre-Warm Logic**: Wakes up 1 minute early to pre-authenticate, eliminating login latency.
+- **Dashboard**: Includes a built-in web dashboard to manage work plans and view logs.
 
-## 📋 Requirements
+### 2. Secondary Method: GitHub Actions (Browser-Based)
+A reliable backup using Playwright to simulate a real user interaction.
+- **Method**: Headless Chromium browser via Python.
+- **Fallback**: Used if the API is restricted or for generating visual proof (screenshots).
+- **Automated**: Runs on GitHub-hosted runners with secure secret management.
 
-- Python 3.7 or higher
-- Windows OS (for PowerShell scheduling features)
-- Internet connection
+---
 
-## 🛠️ Installation
+## ✨ Features
 
-### 1. Clone the Repository
-```bash
-git clone https://github.com/Saikumar-bali/erp_automation_bot.git
-cd erp_automation_bot
-```
+- **Precision Sniper**: Hits the punch target within milliseconds of the scheduled time.
+- **Smart Scheduling**: Automatically follows IST (Indian Standard Time) regardless of server location.
+- **Live Dashboard**: A sleek, glassmorphic UI to toggle between "WORK" and "LEAVE" modes.
+- **Holiday Awareness**: Automatically syncs with the ERP's holiday list.
+- **Multi-User Support**: Processes multiple employee accounts in parallel.
+- **Geolocation Spoofing**: Satisfies location-based requirements via coordinates.
 
-### 2. Install Python Dependencies
-```bash
-pip install playwright
-playwright install chromium
-```
+---
 
-### 3. Configure Your Credentials
-Edit `config.json` with your ERP credentials:
+## 🚀 Quick Start (Cloudflare Primary)
 
-```json
-{
-    "users": [
-        {
-            "username": "your_employee_id",
-            "password": "your_password"
-        }
-    ],
-    "login_url": "https://erp.hippoclouds.com/login#login",
-    "checkin_page_url": "https://erp.hippoclouds.com/app/employee-checkin/new-employee-checkin",
-    "headless": true,
-    "latitude": 17.7274680,
-    "longitude": 83.3119580
-}
-```
+### 1. Deploy the Worker
+1. Install Wrangler: `npm install -g wrangler`
+2. Update `wrangler.toml` with your KV namespace ID.
+3. Deploy: `npx wrangler deploy`
 
-**Multi-User Support:**
-Add multiple users to the `users` array for batch processing:
+### 2. Configure Environment Variables
+In the Cloudflare Dashboard (or via `wrangler secret`), set:
+- `CONFIG`: A JSON string containing user credentials and coordinates.
+- `DASHBOARD_PWD`: Your secret password for the web UI.
 
-```json
-{
-    "users": [
-        {
-            "username": "employee1_id",
-            "password": "employee1_password"
-        },
-        {
-            "username": "employee2_id", 
-            "password": "employee2_password"
-        }
-    ],
-    "login_url": "...",
-    "headless": true,
-    "latitude": 17.7274680,
-    "longitude": 83.3119580
-}
-```
+### 3. Set Cron Triggers
+Set the triggers to fire **1 minute early** to allow for pre-authentication:
+- `29 4 * * MON-SAT` (09:59 AM IST)
+- `29 13 * * MON-SAT` (06:59 PM IST)
 
-**Configuration Details:**
-- `username`: Your employee ID or username
-- `password`: Your ERP password
-- `headless`: Set to `false` for debugging (shows browser), `true` for silent operation
-- `latitude`/`longitude`: GPS coordinates for location-based attendance
+---
 
-## 🏃‍♂️ Usage
+## 🛠️ Secondary Method (GitHub Actions)
 
-### Manual Execution
-```bash
-python src/auto_attendance.py
-```
+If you prefer browser-based automation or need screenshots:
+1. Fork this repository.
+2. Add the following **Secrets** to your repository:
+   - `ERP_USERNAME`, `ERP_PASSWORD`, `ERP_LOGIN_URL`, `LATITUDE`, `LONGITUDE`.
+3. Enable the "Scheduled Attendance Automation" workflow.
 
-### Silent Execution with Notifications (Windows)
-```bash
-powershell -ExecutionPolicy Bypass -File scripts/run_silent.ps1
-```
-
-## ⏰ Scheduling
-
-### 🚀 GitHub Actions (Recommended)
-
-#### Step 1: Configure Repository Secrets
-Go to your GitHub repository → Settings → Secrets and variables → Actions → New repository secret
-
-Add the following secrets:
-```
-ERP_USERNAME=your_employee_id
-ERP_PASSWORD=your_password
-ERP_LOGIN_URL=https://erp.hippoclouds.com/login#login
-ERP_CHECKIN_URL=https://erp.hippoclouds.com/app/employee-checkin/new-employee-checkin
-LATITUDE=17.7274680
-LONGITUDE=83.3119580
-```
-
-#### Step 2: Enable GitHub Actions
-1. Go to Actions tab in your repository
-2. Enable Actions if this is your first time
-3. The workflow will automatically run at 8:30 AM UTC on weekdays
-4. You can also trigger manually from the Actions tab
-
-**⚠️ Important**: GitHub Actions runs on UTC time. Adjust the cron schedule in `.github/workflows/scheduled-attendance.yml` for your timezone.
-
-#### Workflow Features:
-- ✅ Automatic daily execution (weekdays at 8:30 AM UTC)
-- 🔒 Secure credential storage using GitHub Secrets
-- 📊 Automatic artifact upload (logs, screenshots)
-- 🔔 Failure notifications
-- 🎯 Manual trigger option
-
-### Windows Task Scheduler
-1. Open Task Scheduler
-2. Create Basic Task
-3. Set trigger for daily (e.g., 8:30 AM)
-4. Action: Start a program
-5. Program: `powershell.exe`
-6. Arguments: `-ExecutionPolicy Bypass -File "D:\path\to\erp_automation_bot\scripts\run_silent.ps1"`
-
-### Command Line Scheduling
-```powershell
-schtasks /create /tn "ERP Attendance Bot" /tr "powershell.exe -ExecutionPolicy Bypass -File 'D:\erp_automation_bot\scripts\run_silent.ps1'" /sc daily /st 08:30
-```
+---
 
 ## 📁 Project Structure
 
 ```
-erp_automation_bot/
+Hippo_erp_bot/
+├── worker.js              # Primary Cloudflare Worker (API + Dashboard)
+├── wrangler.toml          # Cloudflare configuration
 ├── src/
-│   └── auto_attendance.py     # Main automation script
-├── scripts/
-│   └── run_silent.ps1        # PowerShell wrapper for silent execution
-├── .github/
-│   └── workflows/
-│       └── scheduled-attendance.yml  # GitHub Actions workflow
-├── logs/                     # Screenshots and logs generated by bot
-├── config.json              # Configuration file (local use only)
-├── .gitignore               # Git ignore rules
-└── README.md                # This file
+│   └── auto_attendance.py # Secondary Python script (Browser-based)
+├── attendance.js          # Local Node.js automation (Puppeteer)
+├── WORKFLOW.md            # Detailed technical documentation
+└── .github/workflows/     # GitHub Actions CI/CD
 ```
-
-## 📊 Output Files
-
-- **`attendance_log.txt`**: Detailed execution logs with timestamps
-- **`logs/proof_YYYYMMDD_HHMMSS.png`**: Screenshot proof of successful attendance
-- **`error_state.png`**: Debug screenshot if automation fails
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-1. **Login Failed**
-   - Verify credentials in `config.json`
-   - Check if ERP portal is accessible
-   - Set `"headless": false` to debug visually
-
-2. **Geolocation Not Working**
-   - Verify coordinates are correct for your location
-   - Check if ERP requires specific location
-
-3. **Save Button Not Found**
-   - ERP interface might have changed
-   - Run with `"headless": false` to inspect current interface
-
-### Debug Mode
-Set `"headless": false` in `config.json` to see the browser automation process step-by-step.
-
-## 🔒 Security Notes
-
-- ⚠️ **Never commit `config.json` with real credentials to version control**
-- ✅ **GitHub Actions stores credentials securely in repository secrets**
-- Consider using environment variables for production deployments
-- The bot stores screenshots in `logs/` folder - ensure this directory is secured
-- GitHub Actions artifacts are retained for 30 days and accessible only to repository collaborators
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## 📝 License
-
-This project is for educational and personal use only. Please ensure compliance with your organization's automation policies.
-
-## ⚠️ Disclaimer
-
-This tool automates web interactions and should be used responsibly. Users are responsible for ensuring compliance with their employer's policies regarding automation tools. The author is not responsible for any misuse or consequences of using this automation bot.
-
-## 🐛 Bug Reports
-
-If you encounter issues, please:
-1. Check the troubleshooting section
-2. Run with headless mode disabled to observe the behavior
-3. Check logs in `attendance_log.txt`
-4. Create an issue with detailed information
 
 ---
 
-*made with ❤️ for simplifying daily routine tasks*
+## 📊 Monitoring
+
+- **Web Dashboard**: Access `https://your-worker.workers.dev/?pwd=YOUR_PWD` to see the calendar and logs.
+- **Execution Logs**: View detailed logs including millisecond-level punch confirmation:
+  `SUCCESS: User1 IN @ 2026-05-16 10:00:00.005`
+
+---
+
+## ⚠️ Disclaimer
+
+This tool is for educational purposes. Users are responsible for ensuring compliance with their employer's policies. The authors are not responsible for any misuse or consequences resulting from the use of this bot.
+
+---
+*Developed for maximum efficiency and sub-second precision.*
