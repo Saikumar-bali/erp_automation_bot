@@ -12,17 +12,17 @@ export default {
     ctx.waitUntil((async () => {
       try {
         const startIstStr = istDate.toISOString().replace('T', ' ').slice(0, 23);
-        const dayLabel = dayNames[istDate.getDay()]; // Local day in IST
+        const dayLabel = dayNames[istDate.getDay()];
         
         // Initial log to prove the cron fired
         await env.ATT_DB.put(`LOG:${today}`, `CRON TRIGGERED: ${dayLabel} at ${startIstStr}`);
         
-        // Ensure CONFIG exists
         if (!env.CONFIG) throw new Error("Environment variable 'CONFIG' is missing.");
 
+        // Start the flow
         const report = await handleAttendanceFlow(env);
         
-        // Sync holidays on every run to be safe, or at least once a day
+        // Sync holidays
         await syncHolidays(env);
         
       } catch (e) {
@@ -87,12 +87,14 @@ async function handleAttendanceFlow(env) {
   const isEphHoliday = await env.ATT_DB.get(`HOLIDAY:${today}`);
 
   if (manualPlan === "LEAVE") {
-    await env.ATT_DB.put(`LOG:${today}`, "SKIPPED: MANUAL LEAVE");
+    const existing = await env.ATT_DB.get(`LOG:${today}`) || "";
+    await env.ATT_DB.put(`LOG:${today}`, `${existing} | SKIPPED: MANUAL LEAVE`);
     return "SKIPPED: MANUAL LEAVE";
   }
 
   if (manualPlan !== "WORK" && isEphHoliday) {
-    await env.ATT_DB.put(`LOG:${today}`, `SKIPPED: ERP HOLIDAY (${isEphHoliday})`);
+    const existing = await env.ATT_DB.get(`LOG:${today}`) || "";
+    await env.ATT_DB.put(`LOG:${today}`, `${existing} | SKIPPED: ERP HOLIDAY (${isEphHoliday})`);
     return `SKIPPED: ERP HOLIDAY (${isEphHoliday})`;
   }
 
@@ -149,10 +151,37 @@ async function syncHolidays(env) {
 async function runAttendance(env, istDate) {
   if (!env.CONFIG) throw new Error("Environment variable 'CONFIG' is missing.");
   const config = JSON.parse(env.CONFIG);
+  
+  // Decide log type based on CURRENT time, but we target the turn of the minute
   const logType = istDate.getHours() < 14 ? 'IN' : 'OUT'; 
   const baseUrl = config.login_url.split('/login')[0];
 
-  // 1. PRE-AUTHENTICATION
+  // 1. CALCULATE TARGET (Exactly 10:00:00.003 or 19:00:00.003 IST)
+  const targetHourUtc = logType === 'IN' ? 4 : 13;
+  const targetMinUtc = 30;
+  
+  const targetTime = new Date();
+  targetTime.setUTCHours(targetHourUtc, targetMinUtc, 0, 3); // 00.003 seconds
+  
+  // If we are already past the target (e.g. triggered at 10:00:01), 
+  // we just punch immediately. But usually cron fires at 09:59:XX.
+  let targetMs = targetTime.getTime();
+  
+  // If targetMs is in the past by more than 30 mins, it might be for tomorrow? 
+  // No, cron handles day-of-week.
+
+  // 2. TIMEOUT-SAFE WAIT
+  // Cloudflare Free plan has 30s limit for scheduled events.
+  // If we triggered at 09:59:01, we have 59s to wait. 
+  // We will wait IDLY until 20s before target to stay safe.
+  let now = Date.now();
+  if (targetMs - now > 25000) {
+    const idleWait = targetMs - now - 20000; // Leave 20s for setup + precision wait
+    await new Promise(r => setTimeout(r, idleWait));
+  }
+
+  // 3. PRE-AUTHENTICATION (Setup)
+  // This happens ~20s before the target
   const authResults = await Promise.all(config.users.map(async (user) => {
     try {
       const loginRes = await fetch(`${baseUrl}/api/method/login`, {
@@ -160,38 +189,36 @@ async function runAttendance(env, istDate) {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ usr: user.username, pwd: user.password })
       });
-      const sid = (loginRes.headers.get('set-cookie') || '').match(/sid=([^;]+)/)?.[1];
-      const csrfToken = (loginRes.headers.get('set-cookie') || '').match(/frappe_csrf_token=([^;]+)/)?.[1];
+      // Extract sid and csrf
+      const cookies = loginRes.headers.get('set-cookie') || '';
+      const sid = cookies.match(/sid=([^;]+)/)?.[1];
+      const csrfToken = cookies.match(/frappe_csrf_token=([^;]+)/)?.[1];
       return { username: user.username, sid, csrfToken, error: sid ? null : 'Auth failed' };
     } catch (e) {
       return { username: user.username, error: e.message };
     }
   }));
 
-  // 2. PRECISION WAIT (Targeting exact UTC seconds)
-  const targetHourUtc = logType === 'IN' ? 4 : 13;
-  const targetMinUtc = 30;
-  
-  const targetTime = new Date();
-  targetTime.setUTCHours(targetHourUtc, targetMinUtc, 0, 0);
-  const targetMs = targetTime.getTime();
-
-  // Wait only if we triggered early (limit to 5s to avoid worker timeout)
-  if (Date.now() < targetMs) {
-    const waitLimit = 5000;
-    const startWait = Date.now();
-    while (Date.now() < targetMs && (Date.now() - startWait) < waitLimit) {
+  // 4. PRECISION SNAPPER (Final Wait)
+  // Now we are likely at XX:59:55 or so.
+  now = Date.now();
+  if (now < targetMs) {
+    while (Date.now() < targetMs) {
       const remaining = targetMs - Date.now();
       if (remaining <= 0) break;
-      const sleep = Math.min(remaining, 500);
-      await new Promise(r => setTimeout(r, sleep));
+      if (remaining > 100) await new Promise(r => setTimeout(r, 10)); // Short sleeps
+      else {
+        // Tight loop for the last 100ms
+        while (Date.now() < targetMs) { /* spin */ }
+        break;
+      }
     }
   }
 
   const startTime = Date.now();
   const offset = 5.5 * 60 * 60 * 1000;
   
-  // 3. EXECUTE PUNCHES
+  // 5. EXECUTE PUNCHES (Sniper Hit)
   const userResults = await Promise.all(authResults.map(async (auth) => {
     if (auth.error) return `FAILED: ${auth.username} (${auth.error})`;
     try {
