@@ -7,7 +7,6 @@ export default {
   async scheduled(event, env, ctx) {
     const istDate = getIstDate();
     const dayNames = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-    const dayOfWeek = dayNames[istDate.getUTCDay()]; // This is actually current UTC day, but close enough for logging
     const today = istDate.toISOString().split('T')[0];
     
     ctx.waitUntil((async () => {
@@ -18,14 +17,15 @@ export default {
         // Initial log to prove the cron fired
         await env.ATT_DB.put(`LOG:${today}`, `CRON TRIGGERED: ${dayLabel} at ${startIstStr}`);
         
+        // Ensure CONFIG exists
+        if (!env.CONFIG) throw new Error("Environment variable 'CONFIG' is missing.");
+
         const report = await handleAttendanceFlow(env);
         
-        // Sync holidays at night
-        if (istDate.getHours() >= 18) {
-          await syncHolidays(env);
-        }
+        // Sync holidays on every run to be safe, or at least once a day
+        await syncHolidays(env);
+        
       } catch (e) {
-        // If it fails even at the first step, we catch it here
         const errDate = getIstDate().toISOString().split('T')[0];
         const existing = await env.ATT_DB.get(`LOG:${errDate}`) || "";
         await env.ATT_DB.put(`LOG:${errDate}`, `${existing} | CRON FATAL: ${e.message}`);
@@ -81,7 +81,7 @@ export default {
 };
 
 async function handleAttendanceFlow(env) {
-  const istDate = new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000));
+  const istDate = getIstDate();
   const today = istDate.toISOString().split('T')[0];
   const manualPlan = await env.ATT_DB.get(`PLAN:${today}`);
   const isEphHoliday = await env.ATT_DB.get(`HOLIDAY:${today}`);
@@ -99,42 +99,55 @@ async function handleAttendanceFlow(env) {
   const resultReport = await runAttendance(env, istDate);
   const status = resultReport.includes("SUCCESS") ? "SUCCESS" : "FAILED";
   const summary = resultReport.split('\n').find(l => l.includes("SUCCESS") || l.includes("FAILED")) || "Done";
-  await env.ATT_DB.put(`LOG:${today}`, `${status}: ${summary}`);
+  
+  const existingLogs = await env.ATT_DB.get(`LOG:${today}`) || "";
+  await env.ATT_DB.put(`LOG:${today}`, `${existingLogs} | ${status}: ${summary}`);
   return resultReport;
 }
 
 async function syncHolidays(env) {
+  if (!env.CONFIG) return { success: false, error: "Missing CONFIG" };
   const config = JSON.parse(env.CONFIG);
   const baseUrl = config.login_url.split('/login')[0];
   const user = config.users[0];
-  const loginRes = await fetch(`${baseUrl}/api/method/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ usr: user.username, pwd: user.password })
-  });
-  const sid = (loginRes.headers.get('set-cookie') || '').match(/sid=([^;]+)/)?.[1];
-  if (!sid) throw new Error("Auth failed");
-  const d = new Date();
-  const start = new Date(d.getFullYear(), d.getMonth() - 1, 1).toISOString().slice(0, 10) + " 00:00:00";
-  const end = new Date(d.getFullYear(), d.getMonth() + 3, 0).toISOString().slice(0, 10) + " 23:59:59";
-  const res = await fetch(`${baseUrl}/api/method/erpnext.setup.doctype.holiday_list.holiday_list.get_events?doctype=Holiday%20List&start=${start}&end=${end}&field_map=${encodeURIComponent(JSON.stringify({"start":"holiday_date","end":"holiday_date","id":"name","title":"description"}))}`, {
-    headers: { 'Cookie': `sid=${sid}` }
-  });
-  const holidays = (await res.json()).message || [];
-  const existing = await env.ATT_DB.list({ prefix: "HOLIDAY:" });
-  await Promise.all(existing.keys.map(k => env.ATT_DB.delete(k.name)));
-  const puts = [];
-  for (const h of holidays) {
-    const date = h.start || h.holiday_date;
-    if (!date || (h.id || h.name || "").includes("Tally Care")) continue;
-    const desc = (h.title || "Holiday").replace(/<[^>]*>?/gm, '').trim();
-    puts.push(env.ATT_DB.put(`HOLIDAY:${date.split(' ')[0]}`, desc));
+  
+  try {
+    const loginRes = await fetch(`${baseUrl}/api/method/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ usr: user.username, pwd: user.password })
+    });
+    const sid = (loginRes.headers.get('set-cookie') || '').match(/sid=([^;]+)/)?.[1];
+    if (!sid) return { success: false, error: "Auth failed for holiday sync" };
+
+    const d = new Date();
+    const start = new Date(d.getFullYear(), d.getMonth() - 1, 1).toISOString().slice(0, 10) + " 00:00:00";
+    const end = new Date(d.getFullYear(), d.getMonth() + 3, 0).toISOString().slice(0, 10) + " 23:59:59";
+    
+    const res = await fetch(`${baseUrl}/api/method/erpnext.setup.doctype.holiday_list.holiday_list.get_events?doctype=Holiday%20List&start=${start}&end=${end}&field_map=${encodeURIComponent(JSON.stringify({"start":"holiday_date","end":"holiday_date","id":"name","title":"description"}))}`, {
+      headers: { 'Cookie': `sid=${sid}` }
+    });
+    
+    const holidays = (await res.json()).message || [];
+    if (!Array.isArray(holidays)) return { success: false, error: "Invalid holiday response" };
+
+    const puts = [];
+    for (const h of holidays) {
+      const date = h.start || h.holiday_date;
+      if (!date) continue;
+      const dateStr = date.split(' ')[0];
+      const desc = (h.title || "Holiday").replace(/<[^>]*>?/gm, '').trim();
+      puts.push(env.ATT_DB.put(`HOLIDAY:${dateStr}`, desc));
+    }
+    await Promise.all(puts);
+    return { success: true, count: puts.length };
+  } catch (e) {
+    return { success: false, error: e.message };
   }
-  await Promise.all(puts);
-  return { success: true, count: puts.length };
 }
 
 async function runAttendance(env, istDate) {
+  if (!env.CONFIG) throw new Error("Environment variable 'CONFIG' is missing.");
   const config = JSON.parse(env.CONFIG);
   const logType = istDate.getHours() < 14 ? 'IN' : 'OUT'; 
   const baseUrl = config.login_url.split('/login')[0];
@@ -156,22 +169,22 @@ async function runAttendance(env, istDate) {
   }));
 
   // 2. PRECISION WAIT (Targeting exact UTC seconds)
-  // 10:00 AM IST = 04:30 UTC | 07:00 PM IST = 13:30 UTC
   const targetHourUtc = logType === 'IN' ? 4 : 13;
   const targetMinUtc = 30;
   
-  const targetTime = new Date(); // This is current UTC
+  const targetTime = new Date();
   targetTime.setUTCHours(targetHourUtc, targetMinUtc, 0, 0);
   const targetMs = targetTime.getTime();
 
-  // Wait only if we triggered early (e.g. at 04:29 or 13:29)
+  // Wait only if we triggered early (limit to 5s to avoid worker timeout)
   if (Date.now() < targetMs) {
-    while (Date.now() < targetMs) {
+    const waitLimit = 5000;
+    const startWait = Date.now();
+    while (Date.now() < targetMs && (Date.now() - startWait) < waitLimit) {
       const remaining = targetMs - Date.now();
       if (remaining <= 0) break;
-      if (remaining > 1000) await new Promise(r => setTimeout(r, 500));
-      else if (remaining > 100) await new Promise(r => setTimeout(r, 50));
-      else await new Promise(r => setTimeout(r, 5)); // Final tight loop
+      const sleep = Math.min(remaining, 500);
+      await new Promise(r => setTimeout(r, sleep));
     }
   }
 
@@ -190,7 +203,11 @@ async function runAttendance(env, istDate) {
       
       const response = await fetch(`${baseUrl}/api/resource/Employee Checkin`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Cookie': `sid=${auth.sid}`, 'X-Frappe-CSRF-Token': auth.csrfToken || '' },
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Cookie': `sid=${auth.sid}`, 
+          'X-Frappe-CSRF-Token': auth.csrfToken || '' 
+        },
         body: JSON.stringify({ 
           log_type: logType, 
           time: punchTime, 
@@ -201,7 +218,8 @@ async function runAttendance(env, istDate) {
           location_id: stableDeviceId 
         })
       });
-      return response.ok ? `SUCCESS: ${auth.username} ${logType} @ ${punchTime}.${punchMs}` : `FAILED: ${auth.username} (API Error)`;
+      const resData = await response.json();
+      return response.ok ? `SUCCESS: ${auth.username} ${logType} @ ${punchTime}.${punchMs}` : `FAILED: ${auth.username} (${resData.exception || 'API Error'})`;
     } catch (e) { return `ERROR: ${auth.username} (${e.message})`; }
   }));
   
