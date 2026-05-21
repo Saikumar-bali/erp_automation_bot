@@ -3,7 +3,6 @@ function getIstDate() {
 }
 
 export default {
-  // 1. AUTOMATED CRON JOB
   async scheduled(event, env, ctx) {
     const istDate = getIstDate();
     const dayNames = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
@@ -14,15 +13,10 @@ export default {
         const startIstStr = istDate.toISOString().replace('T', ' ').slice(0, 23);
         const dayLabel = dayNames[istDate.getDay()];
         
-        // Initial log to prove the cron fired
         await env.ATT_DB.put(`LOG:${today}`, `CRON TRIGGERED: ${dayLabel} at ${startIstStr}`);
-        
-        if (!env.CONFIG) throw new Error("Environment variable 'CONFIG' is missing.");
+        if (!env.CONFIG) throw new Error("CONFIG missing");
 
-        // Start the flow
-        const report = await handleAttendanceFlow(env);
-        
-        // Sync holidays
+        await handleAttendanceFlow(env);
         await syncHolidays(env);
         
       } catch (e) {
@@ -120,7 +114,7 @@ async function syncHolidays(env) {
       body: new URLSearchParams({ usr: user.username, pwd: user.password })
     });
     const sid = (loginRes.headers.get('set-cookie') || '').match(/sid=([^;]+)/)?.[1];
-    if (!sid) return { success: false, error: "Auth failed for holiday sync" };
+    if (!sid) return { success: false, error: "Auth failed" };
 
     const d = new Date();
     const start = new Date(d.getFullYear(), d.getMonth() - 1, 1).toISOString().slice(0, 10) + " 00:00:00";
@@ -131,8 +125,6 @@ async function syncHolidays(env) {
     });
     
     const holidays = (await res.json()).message || [];
-    if (!Array.isArray(holidays)) return { success: false, error: "Invalid holiday response" };
-
     const puts = [];
     for (const h of holidays) {
       const date = h.start || h.holiday_date;
@@ -143,45 +135,28 @@ async function syncHolidays(env) {
     }
     await Promise.all(puts);
     return { success: true, count: puts.length };
-  } catch (e) {
-    return { success: false, error: e.message };
-  }
+  } catch (e) { return { success: false, error: e.message }; }
 }
 
 async function runAttendance(env, istDate) {
-  if (!env.CONFIG) throw new Error("Environment variable 'CONFIG' is missing.");
   const config = JSON.parse(env.CONFIG);
-  
-  // Decide log type based on CURRENT time, but we target the turn of the minute
   const logType = istDate.getHours() < 14 ? 'IN' : 'OUT'; 
   const baseUrl = config.login_url.split('/login')[0];
 
-  // 1. CALCULATE TARGET (Exactly 10:00:00.003 or 19:00:00.003 IST)
-  const targetHourUtc = logType === 'IN' ? 4 : 13;
-  const targetMinUtc = 30;
-  
-  const targetTime = new Date();
-  targetTime.setUTCHours(targetHourUtc, targetMinUtc, 0, 3); // 00.003 seconds
-  
-  // If we are already past the target (e.g. triggered at 10:00:01), 
-  // we just punch immediately. But usually cron fires at 09:59:XX.
+  // Fix: Ensure we target the NEXT minute 00:00.003
+  // If we are at 09:59:XX, we target 10:00:00.003
+  // If we are at 18:59:XX, we target 19:00:00.003
+  const targetTime = new Date(Date.now() + (60 * 1000));
+  targetTime.setSeconds(0, 3);
   let targetMs = targetTime.getTime();
-  
-  // If targetMs is in the past by more than 30 mins, it might be for tomorrow? 
-  // No, cron handles day-of-week.
 
-  // 2. TIMEOUT-SAFE WAIT
-  // Cloudflare Free plan has 30s limit for scheduled events.
-  // If we triggered at 09:59:01, we have 59s to wait. 
-  // We will wait IDLY until 20s before target to stay safe.
+  // 1. DYNAMIC IDLE WAIT
   let now = Date.now();
-  if (targetMs - now > 25000) {
-    const idleWait = targetMs - now - 20000; // Leave 20s for setup + precision wait
-    await new Promise(r => setTimeout(r, idleWait));
+  if (targetMs - now > 10000) {
+    await new Promise(r => setTimeout(r, targetMs - now - 8000));
   }
 
-  // 3. PRE-AUTHENTICATION (Setup)
-  // This happens ~20s before the target
+  // 2. PRE-AUTHENTICATION
   const authResults = await Promise.all(config.users.map(async (user) => {
     try {
       const loginRes = await fetch(`${baseUrl}/api/method/login`, {
@@ -189,36 +164,25 @@ async function runAttendance(env, istDate) {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ usr: user.username, pwd: user.password })
       });
-      // Extract sid and csrf
       const cookies = loginRes.headers.get('set-cookie') || '';
       const sid = cookies.match(/sid=([^;]+)/)?.[1];
       const csrfToken = cookies.match(/frappe_csrf_token=([^;]+)/)?.[1];
       return { username: user.username, sid, csrfToken, error: sid ? null : 'Auth failed' };
-    } catch (e) {
-      return { username: user.username, error: e.message };
-    }
+    } catch (e) { return { username: user.username, error: e.message }; }
   }));
 
-  // 4. PRECISION SNAPPER (Final Wait)
-  // Now we are likely at XX:59:55 or so.
+  // 3. FINAL PRECISION WAIT
   now = Date.now();
   if (now < targetMs) {
-    while (Date.now() < targetMs) {
-      const remaining = targetMs - Date.now();
-      if (remaining <= 0) break;
-      if (remaining > 100) await new Promise(r => setTimeout(r, 10)); // Short sleeps
-      else {
-        // Tight loop for the last 100ms
-        while (Date.now() < targetMs) { /* spin */ }
-        break;
-      }
+    const remaining = targetMs - now;
+    if (remaining > 50) {
+      await new Promise(r => setTimeout(r, remaining - 10));
     }
   }
 
   const startTime = Date.now();
   const offset = 5.5 * 60 * 60 * 1000;
   
-  // 5. EXECUTE PUNCHES (Sniper Hit)
   const userResults = await Promise.all(authResults.map(async (auth) => {
     if (auth.error) return `FAILED: ${auth.username} (${auth.error})`;
     try {
@@ -358,5 +322,5 @@ function renderMonthlyDashboard(pwd) {
     </script>
 </body>
 </html>
-  `;
+`;
 }
