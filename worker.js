@@ -143,11 +143,10 @@ async function runAttendance(env, istDate) {
   const logType = istDate.getHours() < 14 ? 'IN' : 'OUT'; 
   const baseUrl = config.login_url.split('/login')[0];
 
-  // Fix: Ensure we target the NEXT minute 00:00.003
-  // If we are at 09:59:XX, we target 10:00:00.003
-  // If we are at 18:59:XX, we target 19:00:00.003
+  // Target: NEXT minute 00:00.500
+  // Using 500ms safety buffer to ensure we are ALWAYS inside the target minute (e.g. 10:00:00.500)
   const targetTime = new Date(Date.now() + (60 * 1000));
-  targetTime.setSeconds(0, 3);
+  targetTime.setSeconds(0, 500); 
   let targetMs = targetTime.getTime();
 
   // 1. DYNAMIC IDLE WAIT
@@ -300,7 +299,7 @@ function renderMonthlyDashboard(pwd) {
             const f = new Date(y, m, 1).getDay(), ds = new Date(y, m+1, 0).getDate();
             for(let i=0; i<f; i++) g.innerHTML += '<div class="day-cell bg-slate-900/5"></div>';
             for(let d=1; d<=ds; d++) {
-                const dsK = \`\${y}-\${String(m+1).padStart(2,'0')}-\${String(d).padStart(2,'0')}\`;
+                const dsK = \`\${y}-\\${String(m+1).padStart(2,'0')}-\\${String(d).padStart(2,'0')}\`;
                 const h = kvData['HOLIDAY:'+dsK], p = kvData['PLAN:'+dsK], l = kvData['LOG:'+dsK];
                 const isT = new Date().toISOString().split('T')[0] === dsK;
                 g.innerHTML += \`
