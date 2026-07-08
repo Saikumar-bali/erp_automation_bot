@@ -16,20 +16,32 @@ Then manually run the GitHub Actions workflow:
 ERP Fleet Task Sync
 ```
 
-Start with `dry_run = 1`. If the output is correct, run again with `dry_run = 0`.
+Use:
+
+```text
+mode = sync_to_erp
+```
+
+Only use this when you want to print the plan without writing to ERP:
+
+```text
+mode = validate_only
+```
 
 ## What it does
 
-- Logs in to the ERP through `/api/method/login`.
+- Validates and prints the task payload from `data/fleet_erp_updates.json`.
+- Logs in to ERP through `/api/method/login` using the same cookie pattern as `worker.js`.
+- Reads `sid` and `frappe_csrf_token` from login response cookies.
+- Sends `Cookie: sid=...` and `X-Frappe-CSRF-Token` for state-changing Frappe requests.
 - Validates or discovers the ERP `Project` record.
-- Upserts tasks from `data/fleet_erp_updates.json`.
-- Avoids duplicate tasks by checking same `project + subject` first.
-- Supports dry-run mode before writing to ERP.
+- Creates or updates tasks, avoiding duplicates by checking same `project + subject` first.
 
 ## Files
 
 - `.github/workflows/erp-task-sync.yml` — manual GitHub Actions workflow.
 - `scripts/frappe_erp_git_task_sync.mjs` — direct Frappe REST sync script.
+- `scripts/validate_fleet_erp_updates.mjs` — JSON/task payload validator.
 - `data/fleet_erp_updates.json` — stable update payload. Edit this file in future.
 
 ## Required GitHub Secrets
@@ -105,8 +117,8 @@ Add open items under `nextTasks`:
 1. Go to **Actions**.
 2. Open **ERP Fleet Task Sync**.
 3. Choose **Run workflow**.
-4. Start with `dry_run = 1`.
-5. If the output shows the correct project and tasks, run again with `dry_run = 0`.
+4. Select `mode = sync_to_erp` to create/update tasks.
+5. Select `mode = validate_only` only when you want validation without ERP writes.
 
 ## Run locally
 
