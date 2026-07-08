@@ -4,7 +4,9 @@
   "description": "A Python automation bot that simplifies daily employee check-in/check-out process for ERP systems. This bot automates the manual process of logging into the ERP portal, fetching geolocation, and marking attendance.",
   "main": "attendance.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "erp:sync-tasks": "node scripts/frappe_erp_git_task_sync.mjs",
+    "erp:sync-tasks:dry": "DRY_RUN=1 node scripts/frappe_erp_git_task_sync.mjs"
   },
   "repository": {
     "type": "git",
