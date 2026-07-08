@@ -61,6 +61,6 @@ jobs:
           PROJECT_SEARCH: ${{ inputs.project_search }}
           CREATE_PROJECT_IF_MISSING: ${{ inputs.create_project_if_missing }}
           DRY_RUN: ${{ inputs.dry_run }}
-          INPUT_FILE: data/fleet_git_tasks_2026-07-08.json
+          INPUT_FILE: data/fleet_erp_updates.json
         run: |
           node scripts/frappe_erp_git_task_sync.mjs
