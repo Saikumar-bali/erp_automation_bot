@@ -3,7 +3,7 @@ import fs from 'node:fs';
 const ERP_URL = (process.env.ERP_URL || 'https://erp.hippoclouds.com').replace(/\/$/, '');
 const ERP_USER = process.env.ERP_USER;
 const ERP_PASS = process.env.ERP_PASS;
-const INPUT_FILE = process.env.INPUT_FILE || 'data/fleet_git_tasks_2026-07-08.json';
+const INPUT_FILE = process.env.INPUT_FILE || 'data/fleet_erp_updates.json';
 const ERP_PROJECT = process.env.ERP_PROJECT || '';
 const PROJECT_SEARCH = process.env.PROJECT_SEARCH || 'FLEET';
 const DRY_RUN = process.env.DRY_RUN !== '0';
