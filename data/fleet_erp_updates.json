@@ -1,0 +1,37 @@
+{
+  "erpProject": "FLEET-MANAGEMENT",
+  "source": {
+    "repository": "Saikumar-bali/FLEET-MANAGEMENT",
+    "defaultBranch": "main",
+    "lastUpdatedAsiaKolkata": "2026-07-08",
+    "latestObservedCommit": "1fb879377d6eefd604b952f752655a23af089c1d",
+    "note": "Stable ERP update file. Edit this file in future, then run the ERP Fleet Task Sync workflow manually."
+  },
+  "dailySummaryTask": {
+    "subject": "Daily Git Timeline Update - Fleet Management - 2026-07-08",
+    "status": "Open",
+    "priority": "High",
+    "description": "Git-derived daily update. Recent completed work includes finance foundation, fuel/documents, workspace hardening, notifications, driver assignment workflow, dispatch board, POD billing, workflow feedback, and Swagger/OpenAPI endpoint coverage. Latest main still needs final local/CI verification before full acceptance."
+  },
+  "completedTasks": [
+    {"subject":"Phase 7 Finance & P&L Foundation merged","status":"Completed","priority":"Medium","branch":"phase-7-finance-pnl","pr":23,"from":"2026-06-23T10:41:50Z","to":"2026-06-24T13:20:29Z","description":"Added finance models, RBAC, dashboard, P&L aggregation, frontend finance pages, and finance workflow tests."},
+    {"subject":"Phase 8.2 Fuel Quick Entry and Documents UI merged","status":"Completed","priority":"Medium","branch":"phase-8-documents-storage","pr":29,"from":"2026-06-25T13:04:38Z","to":"2026-06-25T13:04:47Z","description":"Added fuel quick entry, receipt extraction, fuel document upload linkage, documents UI redesign, and related CI tests."},
+    {"subject":"Role Workspace Engine hardening merged","status":"Completed","priority":"High","branch":"phase-account-scope-foundation","pr":30,"from":"2026-07-02T11:36:31Z","to":"2026-07-02T11:58:56Z","description":"Fixed driver portal navigation fallback, hid admin nav for non-admin roles, and verified focused workspace/driver portal tests."},
+    {"subject":"Phase 20 Alerts and notifications foundation merged","status":"Completed","priority":"High","branch":"phase-20-notifications-foundation","pr":32,"from":"2026-07-03T15:22:41Z","to":"2026-07-04T05:10:20Z","description":"Added notification tables, notification service, recipient resolver, in-app delivery logs, reminders, self notification endpoints, bell, and alerts inbox."},
+    {"subject":"Phase 21 Driver assignment workflow merged","status":"Completed","priority":"High","branch":"phase-21-driver-assignment-workflow","pr":33,"from":"2026-07-03T16:41:21Z","to":"2026-07-04T05:11:19Z","description":"Added trip driver assignment lifecycle, reassign endpoint, driver confirm/decline/start/end actions, assignment alerts, and driver portal UI actions."},
+    {"subject":"Unsafe alerts PR closed without merge","status":"Completed","priority":"Medium","branch":"fix-sidebar-alerts-entrypoint","pr":34,"from":"2026-07-04T05:19:52Z","to":"2026-07-04T06:07:15Z","description":"Closed unmerged because the branch had unsafe intermediate type-file changes. Clean replacement handled by PR 35."},
+    {"subject":"Notification UX and driver assignment alerts merged","status":"Completed","priority":"High","branch":"fix-alerts-driver-notify","pr":35,"from":"2026-07-04T06:09:46Z","to":"2026-07-04T08:21:11Z","description":"Removed duplicate alerts button, used sidebar bell, added unread count, alerts inbox, mark-read actions, and driver assignment notifications."},
+    {"subject":"Phase 22 Dispatch board merged","status":"Completed","priority":"High","branch":"phase-22-dispatch-board","pr":36,"from":"2026-07-04T08:59:41Z","to":"2026-07-04T09:50:35Z","description":"Added dispatch board foundation, availability checks, unassigned trip queue, route estimate, conflict detection, assignment endpoint, UI, and navigation."},
+    {"subject":"Dispatch board crash fix and UI polish merged","status":"Completed","priority":"High","branch":"fix-dispatch-board-ui","pr":37,"from":"2026-07-04T10:32:56Z","to":"2026-07-04T11:37:35Z","description":"Fixed response shape crash on unavailable resources and improved dispatch board UI states."},
+    {"subject":"Dispatch board visual polish merged","status":"Completed","priority":"Medium","branch":"fix-dispatch-board-polish","pr":38,"from":"2026-07-04T11:50:53Z","to":"2026-07-04T11:55:57Z","description":"Reworked dispatch board into cleaner dark operations layout and improved blocked/available/conflict states."},
+    {"subject":"Dispatch board density and vehicle type polish merged","status":"Completed","priority":"Medium","branch":"fix-dispatch-board-density","pr":39,"from":"2026-07-04T12:18:40Z","to":"2026-07-04T12:25:34Z","description":"Reduced board density, grouped resources, added compact metrics, and showed vehicle type clearly."},
+    {"subject":"Delivery proof and billing workflow merged","status":"Completed","priority":"High","branch":"phase-4-pod-billing-chain","pr":40,"from":"2026-07-06T06:22:19Z","to":"2026-07-06T07:35:01Z","description":"Added delivery proof upload, verification, billing draft creation, approval workflow, and related UI."},
+    {"subject":"Workflow feedback update merged","status":"Completed","priority":"Medium","branch":"phase-5-invoice-payment-closure-v2","pr":41,"from":"2026-07-06T09:07:09Z","to":"2026-07-07T12:48:59Z","description":"Merged workflow feedback update. PR metadata showed draft true even though merged true, so keep in review notes."},
+    {"subject":"Swagger OpenAPI missing endpoints update","status":"Completed","priority":"High","branch":"main","pr":null,"from":"2026-07-08T09:11:40Z","to":"2026-07-08T09:11:40Z","description":"Updated Swagger/OpenAPI with missing Dispatch, Dashboard, Workspace, Driver Portal, Driver Trip Assignment, and POD Billing endpoints."}
+  ],
+  "nextTasks": [
+    {"subject":"Verify latest main GitHub Actions and local quality gate","status":"Open","priority":"High","description":"Run backend lint/build, web lint/build, API docs, backend integration tests, and Playwright headed smoke before final acceptance."},
+    {"subject":"Close or reconcile stale open PRs","status":"Open","priority":"Medium","description":"Review old open PRs that conflict with later completed phases and close/update them with reason."},
+    {"subject":"Manual ERP evidence update discipline","status":"Open","priority":"High","description":"Update this file daily with completed work, branch, PR, commit, testing evidence, deployment status, and next tasks. Do not mark work complete only from CLI-AI claims."}
+  ]
+}
