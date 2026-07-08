@@ -46,12 +46,17 @@ jobs:
         run: |
           node scripts/validate_fleet_erp_updates.mjs
 
-      - name: Check ERP credentials policy
+      - name: Sync Fleet timeline tasks into ERP
         shell: bash
         env:
+          ERP_URL: ${{ secrets.ERP_URL }}
           ERP_USER: ${{ secrets.ERP_USERNAME }}
           ERP_PASS: ${{ secrets.ERP_PASSWORD }}
+          ERP_PROJECT: ${{ secrets.ERP_PROJECT }}
+          PROJECT_SEARCH: ${{ inputs.project_search }}
+          CREATE_PROJECT_IF_MISSING: ${{ inputs.create_project_if_missing }}
           DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_FILE: data/fleet_erp_updates.json
         run: |
           if [ "$DRY_RUN" = "1" ] && { [ -z "$ERP_USER" ] || [ -z "$ERP_PASS" ]; }; then
             echo "Dry-run validation passed. ERP credentials are missing, so ERP connectivity is skipped."
@@ -64,19 +69,4 @@ jobs:
             exit 1
           fi
 
-          echo "Required ERP credential secrets are present."
-
-      - name: Sync Fleet timeline tasks into ERP
-        if: ${{ inputs.dry_run == '0' || (secrets.ERP_USERNAME != '' && secrets.ERP_PASSWORD != '') }}
-        shell: bash
-        env:
-          ERP_URL: ${{ secrets.ERP_URL }}
-          ERP_USER: ${{ secrets.ERP_USERNAME }}
-          ERP_PASS: ${{ secrets.ERP_PASSWORD }}
-          ERP_PROJECT: ${{ secrets.ERP_PROJECT }}
-          PROJECT_SEARCH: ${{ inputs.project_search }}
-          CREATE_PROJECT_IF_MISSING: ${{ inputs.create_project_if_missing }}
-          DRY_RUN: ${{ inputs.dry_run }}
-          INPUT_FILE: data/fleet_erp_updates.json
-        run: |
           node scripts/frappe_erp_git_task_sync.mjs
