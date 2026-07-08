@@ -3,14 +3,14 @@ name: ERP Fleet Task Sync
 on:
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: "Use 1 to validate/print task plan only, 0 to create/update ERP tasks"
+      mode:
+        description: "Choose sync_to_erp to create/update tasks, or validate_only to only print the plan"
         required: true
-        default: "1"
+        default: "sync_to_erp"
         type: choice
         options:
-          - "1"
-          - "0"
+          - "sync_to_erp"
+          - "validate_only"
       project_search:
         description: "Project search text if ERP_PROJECT secret is not exact"
         required: false
@@ -46,14 +46,14 @@ jobs:
         run: |
           node scripts/validate_fleet_erp_updates.mjs
 
-      - name: Stop after validation for dry run
-        if: ${{ inputs.dry_run == '1' }}
+      - name: Stop after validation only
+        if: ${{ inputs.mode == 'validate_only' }}
         shell: bash
         run: |
-          echo "dry_run=1 selected. Validation and task timeline print completed. No ERP login/API calls were made."
+          echo "mode=validate_only selected. Validation and task timeline print completed. No ERP login/API calls were made."
 
       - name: Sync Fleet timeline tasks into ERP
-        if: ${{ inputs.dry_run == '0' }}
+        if: ${{ inputs.mode == 'sync_to_erp' }}
         shell: bash
         env:
           ERP_URL: ${{ secrets.ERP_URL }}
@@ -66,7 +66,7 @@ jobs:
           INPUT_FILE: data/fleet_erp_updates.json
         run: |
           if [ -z "$ERP_USER" ] || [ -z "$ERP_PASS" ]; then
-            echo "ERP_USERNAME and ERP_PASSWORD GitHub Secrets are required for dry_run=0. Do not commit credentials."
+            echo "ERP_USERNAME and ERP_PASSWORD GitHub Secrets are required for sync_to_erp. Do not commit credentials."
             exit 1
           fi
 
