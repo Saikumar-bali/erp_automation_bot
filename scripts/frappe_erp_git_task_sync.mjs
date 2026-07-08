@@ -15,33 +15,43 @@ if (!ERP_USER || !ERP_PASS) {
 }
 
 const input = JSON.parse(fs.readFileSync(INPUT_FILE, 'utf8'));
-const cookieJar = new Map();
+let sid = '';
 let csrfToken = '';
 let resolvedProject = ERP_PROJECT || input.erpProject || '';
 
-function cleanUrl(path) {
+function url(path) {
   return `${ERP_URL}${path}`;
 }
 
-function cookieHeader() {
-  return [...cookieJar.entries()].map(([key, value]) => `${key}=${value}`).join('; ');
+function splitSetCookie(header) {
+  if (!header) return [];
+  return header.split(/,(?=\s*[^;,\s]+=)/g).map((part) => part.trim());
 }
 
-function storeCookies(setCookieHeader) {
-  if (!setCookieHeader) return;
-
-  // GitHub/Node fetch exposes set-cookie as a combined string. Split only at real cookie boundaries.
-  const cookies = setCookieHeader.split(/,(?=\s*[^;=]+=[^;]+)/g);
-  for (const cookie of cookies) {
+function cookieValue(setCookieHeader, cookieName) {
+  for (const cookie of splitSetCookie(setCookieHeader)) {
     const pair = cookie.split(';')[0]?.trim();
-    if (!pair || !pair.includes('=')) continue;
-    const [key, ...valueParts] = pair.split('=');
-    const value = valueParts.join('=');
-    if (key && value) cookieJar.set(key, value);
+    if (!pair) continue;
+    const eq = pair.indexOf('=');
+    if (eq === -1) continue;
+    const key = pair.slice(0, eq);
+    const value = pair.slice(eq + 1);
+    if (key === cookieName) {
+      try {
+        return decodeURIComponent(value);
+      } catch {
+        return value;
+      }
+    }
   }
+  return '';
 }
 
-function isUnsafeMethod(method) {
+function qs(params) {
+  return new URLSearchParams(params).toString();
+}
+
+function isUnsafe(method) {
   return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(method || 'GET').toUpperCase());
 }
 
@@ -49,32 +59,22 @@ async function api(path, options = {}) {
   const method = String(options.method || 'GET').toUpperCase();
   const headers = {
     Accept: 'application/json',
-    ...(cookieJar.size ? { Cookie: cookieHeader() } : {}),
-    ...(isUnsafeMethod(method) && csrfToken ? { 'X-Frappe-CSRF-Token': csrfToken } : {}),
+    ...(sid ? { Cookie: `sid=${sid}` } : {}),
+    ...(isUnsafe(method) && csrfToken ? { 'X-Frappe-CSRF-Token': csrfToken } : {}),
     ...(options.headers || {})
   };
 
   let body = options.body;
-  if (body && typeof body === 'object' && !(body instanceof URLSearchParams) && !(body instanceof FormData)) {
+  if (body instanceof URLSearchParams) {
+    headers['Content-Type'] = headers['Content-Type'] || 'application/x-www-form-urlencoded';
+    body = body.toString();
+  } else if (body && typeof body === 'object') {
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';
     body = JSON.stringify(body);
   }
 
-  if (body instanceof URLSearchParams) {
-    headers['Content-Type'] = headers['Content-Type'] || 'application/x-www-form-urlencoded';
-    body = body.toString();
-  }
-
-  const res = await fetch(cleanUrl(path), {
-    ...options,
-    method,
-    headers,
-    body
-  });
-
-  storeCookies(res.headers.get('set-cookie'));
-
-  const text = await res.text();
+  const response = await fetch(url(path), { ...options, method, headers, body });
+  const text = await response.text();
   let parsed;
   try {
     parsed = JSON.parse(text);
@@ -82,61 +82,46 @@ async function api(path, options = {}) {
     parsed = text;
   }
 
-  if (!res.ok) {
-    const msg = typeof parsed === 'string' ? parsed.slice(0, 1200) : JSON.stringify(parsed, null, 2);
-    if (res.status === 403 && /csrf/i.test(msg)) {
-      throw new Error(
-        `ERP rejected a state-changing request because the CSRF token was missing or invalid. ` +
-        `This script now fetches and sends X-Frappe-CSRF-Token; rerun after this commit. Original response: ${msg}`
-      );
-    }
-    throw new Error(`API failed ${res.status} ${method} ${path}\n${msg}`);
+  if (!response.ok) {
+    const details = typeof parsed === 'string' ? parsed.slice(0, 1500) : JSON.stringify(parsed, null, 2);
+    throw new Error(`API failed ${response.status} ${method} ${path}\n${details}`);
   }
 
-  return { body: parsed, text };
-}
-
-function qs(params) {
-  return new URLSearchParams(params).toString();
+  return { body: parsed, text, headers: response.headers };
 }
 
 async function login() {
-  console.log('Logging in to ERP...');
-  const form = new URLSearchParams({ usr: ERP_USER, pwd: ERP_PASS });
-  await api('/api/method/login', { method: 'POST', body: form });
+  console.log('Logging in using the same cookie pattern as worker.js...');
+
+  const loginResponse = await fetch(url('/api/method/login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ usr: ERP_USER, pwd: ERP_PASS })
+  });
+
+  const setCookie = loginResponse.headers.get('set-cookie') || '';
+  sid = cookieValue(setCookie, 'sid');
+  csrfToken = cookieValue(setCookie, 'frappe_csrf_token');
+
+  if (!loginResponse.ok || !sid || sid === 'Guest') {
+    const text = await loginResponse.text().catch(() => '');
+    throw new Error(`ERP login failed or did not return sid cookie. Status=${loginResponse.status}. ${text.slice(0, 500)}`);
+  }
+
+  if (!csrfToken) {
+    throw new Error('ERP login succeeded but did not return frappe_csrf_token cookie. Existing worker.js depends on this cookie; check ERP response headers or session policy.');
+  }
+
+  console.log('ERP session cookie and CSRF cookie acquired from login response.');
 
   const me = await api('/api/method/frappe.auth.get_logged_user');
+  if (!me.body?.message || me.body.message === 'Guest') {
+    throw new Error(`ERP session verification failed. get_logged_user returned: ${JSON.stringify(me.body)}`);
+  }
   console.log(`Logged in as: ${me.body.message}`);
-
-  await fetchCsrfToken();
 }
 
-async function fetchCsrfToken() {
-  try {
-    const res = await api('/api/method/frappe.sessions.get_csrf_token');
-    const token = res.body?.message || res.body?.csrf_token;
-    if (typeof token === 'string' && token.trim()) {
-      csrfToken = token.trim();
-      console.log('CSRF token acquired from frappe.sessions.get_csrf_token.');
-      return;
-    }
-  } catch (err) {
-    console.log('CSRF token method did not return a token; trying /app HTML fallback.');
-  }
-
-  const res = await api('/app');
-  const html = res.text || '';
-  const match = html.match(/csrf_token["']?\s*[:=]\s*["']([^"']+)["']/i) || html.match(/frappe\.csrf_token\s*=\s*["']([^"']+)["']/i);
-  if (match?.[1]) {
-    csrfToken = match[1];
-    console.log('CSRF token acquired from /app HTML.');
-    return;
-  }
-
-  throw new Error('Unable to acquire Frappe CSRF token after login. State-changing ERP API calls cannot run safely without it.');
-}
-
-async function tryValidateProject(projectName) {
+async function validateExactProject(projectName) {
   if (!projectName) return false;
   try {
     await api('/api/method/frappe.client.validate_link', {
@@ -150,36 +135,33 @@ async function tryValidateProject(projectName) {
     resolvedProject = projectName;
     console.log(`Project validated: ${resolvedProject}`);
     return true;
-  } catch (err) {
-    console.log(`Exact project validation failed for ${projectName}: ${err.message.split('\n')[0]}`);
+  } catch (error) {
+    console.log(`Exact project validation failed for ${projectName}: ${String(error.message).split('\n')[0]}`);
     return false;
   }
 }
 
-async function listProjectsByFilter(field, value) {
+async function listProjects(field, search) {
   const query = qs({
     fields: JSON.stringify(['name', 'project_name', 'status']),
-    filters: JSON.stringify([[field, 'like', `%${value}%`]]),
+    filters: JSON.stringify([[field, 'like', `%${search}%`]]),
     limit_page_length: '20'
   });
-  const res = await api(`/api/resource/Project?${query}`);
-  return res.body.data || [];
+  const response = await api(`/api/resource/Project?${query}`);
+  return response.body.data || [];
 }
 
 async function findProject() {
-  if (await tryValidateProject(resolvedProject)) return resolvedProject;
+  if (await validateExactProject(resolvedProject)) return resolvedProject;
 
-  const search = PROJECT_SEARCH || resolvedProject || 'FLEET';
+  const search = PROJECT_SEARCH || resolvedProject || input.erpProject || 'FLEET';
   let projects = [];
 
   try {
-    projects = await listProjectsByFilter('name', search);
-    if (projects.length === 0) projects = await listProjectsByFilter('project_name', search);
-  } catch (err) {
-    throw new Error(
-      `Could not search ERP Project records. Root cause is likely Project read permission or Project doctype access. ` +
-      `Set ERP_PROJECT to the exact Project document name if known. Original error: ${err.message}`
-    );
+    projects = await listProjects('name', search);
+    if (projects.length === 0) projects = await listProjects('project_name', search);
+  } catch (error) {
+    throw new Error(`Could not search Project records. Likely root cause: ERP user lacks Project read permission. Original error: ${error.message}`);
   }
 
   if (projects.length > 0) {
@@ -191,19 +173,10 @@ async function findProject() {
   }
 
   if (!CREATE_PROJECT_IF_MISSING) {
-    throw new Error(
-      `No ERP Project matched ${JSON.stringify(search)}. This is the next possible failure after CSRF. ` +
-      `Set ERP_PROJECT to the exact Project document name, change project_search, or run with create_project_if_missing=1.`
-    );
+    throw new Error(`No ERP Project matched ${JSON.stringify(search)}. Set ERP_PROJECT to the exact Project document name, adjust project_search, or run with create_project_if_missing=1.`);
   }
 
   const projectName = resolvedProject || input.erpProject || 'FLEET-MANAGEMENT';
-  if (DRY_RUN) {
-    console.log(`[DRY RUN] Would create Project: ${projectName}`);
-    resolvedProject = projectName;
-    return resolvedProject;
-  }
-
   const created = await api('/api/resource/Project', {
     method: 'POST',
     body: { project_name: projectName, status: 'Open' }
@@ -214,20 +187,20 @@ async function findProject() {
 }
 
 function taskPayload(task) {
-  const lines = [];
-  if (task.branch) lines.push(`Branch: ${task.branch}`);
-  if (task.pr) lines.push(`PR: #${task.pr}`);
-  if (task.from || task.to) lines.push(`Timeline UTC: ${task.from || 'unknown'} to ${task.to || 'unknown'}`);
-  if (input.source?.repository) lines.push(`Repository: ${input.source.repository}`);
-  if (input.source?.latestObservedCommit) lines.push(`Latest observed commit: ${input.source.latestObservedCommit}`);
-  if (task.description) lines.push('', task.description);
+  const description = [];
+  if (task.branch) description.push(`Branch: ${task.branch}`);
+  if (task.pr) description.push(`PR: #${task.pr}`);
+  if (task.from || task.to) description.push(`Timeline UTC: ${task.from || 'unknown'} to ${task.to || 'unknown'}`);
+  if (input.source?.repository) description.push(`Repository: ${input.source.repository}`);
+  if (input.source?.latestObservedCommit) description.push(`Latest observed commit: ${input.source.latestObservedCommit}`);
+  if (task.description) description.push('', task.description);
 
   return {
     subject: task.subject,
     project: resolvedProject,
     status: task.status || 'Open',
     priority: task.priority || 'Medium',
-    description: lines.join('\n')
+    description: description.join('\n')
   };
 }
 
@@ -240,8 +213,8 @@ async function findTask(subject) {
     ]),
     limit_page_length: '1'
   });
-  const res = await api(`/api/resource/Task?${query}`);
-  return res.body.data?.[0] || null;
+  const response = await api(`/api/resource/Task?${query}`);
+  return response.body.data?.[0] || null;
 }
 
 async function upsertTask(task) {
@@ -250,7 +223,7 @@ async function upsertTask(task) {
 
   if (DRY_RUN) {
     console.log(`[DRY RUN] ${existing ? 'UPDATE' : 'CREATE'}: ${payload.subject} -> ${payload.status}`);
-    return { action: existing ? 'update' : 'create', subject: payload.subject, dryRun: true };
+    return;
   }
 
   if (existing) {
@@ -259,7 +232,7 @@ async function upsertTask(task) {
       body: payload
     });
     console.log(`Updated: ${updated.body.data?.name || existing.name}`);
-    return { action: 'updated', name: updated.body.data?.name || existing.name, subject: payload.subject };
+    return;
   }
 
   const created = await api('/api/resource/Task', {
@@ -267,7 +240,6 @@ async function upsertTask(task) {
     body: payload
   });
   console.log(`Created: ${created.body.data?.name || payload.subject}`);
-  return { action: 'created', name: created.body.data?.name, subject: payload.subject };
 }
 
 try {
@@ -275,15 +247,14 @@ try {
   await findProject();
 
   const tasks = [input.dailySummaryTask, ...input.completedTasks, ...input.nextTasks].filter(Boolean);
-  const results = [];
-  for (const task of tasks) results.push(await upsertTask(task));
+  for (const task of tasks) await upsertTask(task);
 
   console.log('\nSummary');
   console.log(`Project: ${resolvedProject}`);
-  console.log(`Tasks processed: ${results.length}`);
+  console.log(`Tasks processed: ${tasks.length}`);
   console.log(DRY_RUN ? 'Dry run completed. No ERP changes were made.' : 'ERP update completed.');
-} catch (err) {
+} catch (error) {
   console.error('\nERP Fleet Task Sync failed.');
-  console.error(err.message || err);
+  console.error(error.message || error);
   process.exit(1);
 }
