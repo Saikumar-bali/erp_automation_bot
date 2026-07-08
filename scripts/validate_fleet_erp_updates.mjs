@@ -41,7 +41,22 @@ for (const [section, tasks] of [['dailySummaryTask', [data.dailySummaryTask]], [
 
 console.log('Fleet ERP update payload validation passed.');
 console.log(`Project: ${data.erpProject}`);
+console.log(`Repository: ${data.source.repository}`);
+console.log(`Last updated IST date: ${data.source.lastUpdatedAsiaKolkata}`);
 console.log(`Daily summary: 1`);
 console.log(`Completed tasks: ${data.completedTasks.length}`);
 console.log(`Next tasks: ${data.nextTasks.length}`);
 console.log(`Total tasks: ${1 + data.completedTasks.length + data.nextTasks.length}`);
+
+console.log('\nCompleted task timeline:');
+for (const [index, task] of data.completedTasks.entries()) {
+  const branch = task.branch ? ` | branch=${task.branch}` : '';
+  const pr = task.pr ? ` | PR=#${task.pr}` : '';
+  const timeline = task.from || task.to ? ` | ${task.from || 'unknown'} -> ${task.to || 'unknown'}` : '';
+  console.log(`${index + 1}. ${task.subject}${branch}${pr}${timeline}`);
+}
+
+console.log('\nNext tasks:');
+for (const [index, task] of data.nextTasks.entries()) {
+  console.log(`${index + 1}. ${task.subject} | status=${task.status} | priority=${task.priority}`);
+}
