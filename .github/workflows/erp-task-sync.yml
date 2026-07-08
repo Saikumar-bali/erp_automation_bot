@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Use 1 for validation/dry run, 0 to create/update ERP tasks"
+        description: "Use 1 to validate/print task plan only, 0 to create/update ERP tasks"
         required: true
         default: "1"
         type: choice
@@ -39,14 +39,21 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Validate Fleet ERP update file
+      - name: Validate and print Fleet ERP update plan
         shell: bash
         env:
           INPUT_FILE: data/fleet_erp_updates.json
         run: |
           node scripts/validate_fleet_erp_updates.mjs
 
+      - name: Stop after validation for dry run
+        if: ${{ inputs.dry_run == '1' }}
+        shell: bash
+        run: |
+          echo "dry_run=1 selected. Validation and task timeline print completed. No ERP login/API calls were made."
+
       - name: Sync Fleet timeline tasks into ERP
+        if: ${{ inputs.dry_run == '0' }}
         shell: bash
         env:
           ERP_URL: ${{ secrets.ERP_URL }}
@@ -55,15 +62,9 @@ jobs:
           ERP_PROJECT: ${{ secrets.ERP_PROJECT }}
           PROJECT_SEARCH: ${{ inputs.project_search }}
           CREATE_PROJECT_IF_MISSING: ${{ inputs.create_project_if_missing }}
-          DRY_RUN: ${{ inputs.dry_run }}
+          DRY_RUN: "0"
           INPUT_FILE: data/fleet_erp_updates.json
         run: |
-          if [ "$DRY_RUN" = "1" ] && { [ -z "$ERP_USER" ] || [ -z "$ERP_PASS" ]; }; then
-            echo "Dry-run validation passed. ERP credentials are missing, so ERP connectivity is skipped."
-            echo "Set ERP_USERNAME and ERP_PASSWORD secrets before running dry_run=0."
-            exit 0
-          fi
-
           if [ -z "$ERP_USER" ] || [ -z "$ERP_PASS" ]; then
             echo "ERP_USERNAME and ERP_PASSWORD GitHub Secrets are required for dry_run=0. Do not commit credentials."
             exit 1
