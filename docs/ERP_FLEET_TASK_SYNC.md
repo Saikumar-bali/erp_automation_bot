@@ -10,7 +10,47 @@ In future, update only this file when work is completed or next work changes:
 data/fleet_erp_updates.json
 ```
 
-Then manually run the GitHub Actions workflow:
+A push to `master` that changes the ERP sync files now automatically runs CI.
+
+## Push CI behavior
+
+Every push to `master` affecting these files runs a safe CI diagnostic:
+
+- `data/fleet_erp_updates.json`
+- `scripts/frappe_erp_git_task_sync.mjs`
+- `scripts/validate_fleet_erp_updates.mjs`
+- `.github/workflows/erp-task-sync.yml`
+- `docs/ERP_FLEET_TASK_SYNC.md`
+- `package.json`
+
+Push CI does **not** create or update ERP tasks. It runs with:
+
+```text
+DRY_RUN=1
+```
+
+That means it validates:
+
+- JSON payload correctness
+- completed task timeline structure
+- ERP login using the working cookie pattern from `worker.js`
+- Project lookup/read access
+- Task lookup/read access
+- duplicate-safe create/update plan
+
+If push CI fails, the Actions log should identify the root cause, such as:
+
+- missing GitHub Secrets
+- ERP login failed
+- missing `sid` cookie
+- missing `frappe_csrf_token` cookie
+- Project not found
+- Project read permission missing
+- Task read permission missing
+
+## Manual ERP write behavior
+
+To actually create/update tasks in ERP, manually run the GitHub Actions workflow:
 
 ```text
 ERP Fleet Task Sync
@@ -39,7 +79,7 @@ mode = validate_only
 
 ## Files
 
-- `.github/workflows/erp-task-sync.yml` — manual GitHub Actions workflow.
+- `.github/workflows/erp-task-sync.yml` — push CI diagnostic + manual ERP sync workflow.
 - `scripts/frappe_erp_git_task_sync.mjs` — direct Frappe REST sync script.
 - `scripts/validate_fleet_erp_updates.mjs` — JSON/task payload validator.
 - `data/fleet_erp_updates.json` — stable update payload. Edit this file in future.
