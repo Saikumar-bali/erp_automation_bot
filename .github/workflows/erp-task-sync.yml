@@ -1,6 +1,16 @@
 name: ERP Fleet Task Sync
 
 on:
+  push:
+    branches:
+      - master
+    paths:
+      - data/fleet_erp_updates.json
+      - scripts/frappe_erp_git_task_sync.mjs
+      - scripts/validate_fleet_erp_updates.mjs
+      - .github/workflows/erp-task-sync.yml
+      - docs/ERP_FLEET_TASK_SYNC.md
+      - package.json
   workflow_dispatch:
     inputs:
       mode:
@@ -46,14 +56,34 @@ jobs:
         run: |
           node scripts/validate_fleet_erp_updates.mjs
 
+      - name: Push CI ERP dry-run diagnostic
+        if: ${{ github.event_name == 'push' }}
+        shell: bash
+        env:
+          ERP_URL: ${{ secrets.ERP_URL }}
+          ERP_USER: ${{ secrets.ERP_USERNAME }}
+          ERP_PASS: ${{ secrets.ERP_PASSWORD }}
+          ERP_PROJECT: ${{ secrets.ERP_PROJECT }}
+          PROJECT_SEARCH: FLEET
+          CREATE_PROJECT_IF_MISSING: "0"
+          DRY_RUN: "1"
+          INPUT_FILE: data/fleet_erp_updates.json
+        run: |
+          echo "Push CI mode: validating payload + ERP login/project/task-read dry run only. No ERP writes will be made."
+          if [ -z "$ERP_USER" ] || [ -z "$ERP_PASS" ]; then
+            echo "Root cause: ERP_USERNAME and ERP_PASSWORD GitHub Secrets are required for push CI diagnostics."
+            exit 1
+          fi
+          node scripts/frappe_erp_git_task_sync.mjs
+
       - name: Stop after validation only
-        if: ${{ inputs.mode == 'validate_only' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'validate_only' }}
         shell: bash
         run: |
           echo "mode=validate_only selected. Validation and task timeline print completed. No ERP login/API calls were made."
 
       - name: Sync Fleet timeline tasks into ERP
-        if: ${{ inputs.mode == 'sync_to_erp' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'sync_to_erp' }}
         shell: bash
         env:
           ERP_URL: ${{ secrets.ERP_URL }}
