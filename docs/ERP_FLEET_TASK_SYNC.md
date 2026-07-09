@@ -12,6 +12,8 @@ data/fleet_erp_updates.json
 
 A push to `master` that changes the ERP sync files now automatically runs CI.
 
+Latest intentional push-CI trigger: 2026-07-09.
+
 ## Push CI behavior
 
 Every push to `master` affecting these files runs a safe CI diagnostic:
