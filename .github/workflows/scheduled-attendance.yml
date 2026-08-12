@@ -8,7 +8,7 @@ on:
     # 7:00 PM IST (13:30 UTC) Monday–Saturday
     # - cron: '30 13 * * 1-6'
 
-  # workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
   attendance-bot:
